@@ -1,2 +1,6 @@
 streamlit
 pillow
+pandas
+openpyxl
+rembg
+onnxruntime
