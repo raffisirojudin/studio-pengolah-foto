@@ -8,7 +8,7 @@ import os
 st.set_page_config(page_title="Studio Pengolah Foto Massal", page_icon="🎨", layout="wide")
 
 st.title("🎨 Studio Pengolah & Konverter Foto Massal")
-st.write("Aplikasi serbaguna untuk edit foto massal, penyesuaian warna, watermark logo/teks, bulk rename, hingga konversi ke PDF.")
+st.write("Aplikasi serbaguna untuk edit foto massal, penyesuaian warna, watermark logo/teks, bulk rename, hingga konversi ke berbagai format & PDF.")
 
 # ==================== SIDEBAR PENGATURAN ====================
 st.sidebar.header("⚙️ 1. Format & Penamaan File")
@@ -18,8 +18,8 @@ mode_output = st.sidebar.radio("Moda Hasil Akhir:", ["File Gambar Terpisah (ZIP)
 
 if mode_output == "File Gambar Terpisah (ZIP)":
     target_formats = st.sidebar.multiselect(
-        "Format Output:",
-        ["JPG", "PNG", "WEBP"],
+        "Format Output yang Diinginkan:",
+        ["JPG", "PNG", "WEBP", "TIFF", "BMP", "GIF", "ICO"],
         default=["JPG"]
     )
 else:
@@ -37,7 +37,7 @@ crop_ratio = st.sidebar.selectbox(
     "Potong Rasio Media Sosial:",
     ["Asli (Tanpa Crop)", "1:1 (Feed Instagram)", "9:16 (Story / TikTok)", "16:9 (Banner / Landscape)"]
 )
-max_width = st.sidebar.number_input("Lebar Maksimal Gambar (px):", min_value=300, max_value=3840, value=1920, step=100)
+max_width = st.sidebar.number_input("Lebar Maksimal Gambar (px):", min_value=16, max_value=3840, value=1920, step=100)
 quality = st.sidebar.slider("Kualitas Kompresi (JPG/WEBP):", min_value=10, max_value=100, value=80)
 
 st.sidebar.markdown("---")
@@ -161,86 +161,102 @@ def tempel_watermark(img):
 # ==================== ANTARMUKA UTAMA ====================
 uploaded_files = st.file_uploader(
     "Unggah foto-foto Anda di sini:", 
-    type=['jpg', 'jpeg', 'png', 'webp', 'bmp'], 
+    type=['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff'], 
     accept_multiple_files=True
 )
 
 if uploaded_files:
-    st.info(f"Terdeteksi **{len(uploaded_files)} foto** siap diproses.")
+    if mode_output == "File Gambar Terpisah (ZIP)" and not target_formats:
+        st.warning("⚠️ Pilih minimal satu format output di sidebar sebelah kiri!")
+    else:
+        st.info(f"Terdeteksi **{len(uploaded_files)} foto** siap diproses.")
 
-    if st.button("🚀 Mulai Proses Semua Foto", type="primary"):
-        progress_bar = st.progress(0)
-        processed_images_for_pdf = []
-        zip_buffer = io.BytesIO()
+        if st.button("🚀 Mulai Proses Semua Foto", type="primary"):
+            progress_bar = st.progress(0)
+            processed_images_for_pdf = []
+            zip_buffer = io.BytesIO()
 
-        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-            for idx, uploaded_file in enumerate(uploaded_files):
-                # 1. Buka & Penyesuaian Dasar
-                img = Image.open(uploaded_file).convert("RGBA")
-                
-                # 2. Crop Aspect Ratio
-                img = crop_gambar(img, crop_ratio)
+            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                for idx, uploaded_file in enumerate(uploaded_files):
+                    # 1. Buka & Penyesuaian Dasar
+                    img = Image.open(uploaded_file).convert("RGBA")
+                    
+                    # 2. Crop Aspect Ratio
+                    img = crop_gambar(img, crop_ratio)
 
-                # 3. Resize Lebar Maksimal
-                orig_w, orig_h = img.size
-                ratio = min(max_width / orig_w, max_width / orig_h)
-                if ratio < 1.0:
-                    new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
-                    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    # 3. Resize Lebar Maksimal
+                    orig_w, orig_h = img.size
+                    ratio = min(max_width / orig_w, max_width / orig_h)
+                    if ratio < 1.0:
+                        new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
+                        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-                # 4. Filter Warna & Efek
-                img = sesuaikan_warna(img)
+                    # 4. Filter Warna & Efek
+                    img = sesuaikan_warna(img)
 
-                # 5. Watermark
-                img = tempel_watermark(img)
+                    # 5. Watermark
+                    img = tempel_watermark(img)
 
-                # 6. Menentukan Nama File Baru (Bulk Rename)
-                base_nama = prefix_nama if prefix_nama.strip() else "foto"
-                if pakai_penomoran:
-                    nama_baru = f"{base_nama}_{idx+1:02d}"
-                else:
-                    nama_baru = f"{base_nama}_{os.path.splitext(uploaded_file.name)[0]}"
+                    # 6. Menentukan Nama File Baru (Bulk Rename)
+                    base_nama = prefix_nama if prefix_nama.strip() else "foto"
+                    if pakai_penomoran:
+                        nama_baru = f"{base_nama}_{idx+1:02d}"
+                    else:
+                        nama_baru = f"{base_nama}_{os.path.splitext(uploaded_file.name)[0]}"
 
-                # 7. Simpan Hasil Sesuai Moda Output
-                if mode_output == "Gabung Jadi 1 File PDF":
-                    processed_images_for_pdf.append(img.convert("RGB"))
-                else:
-                    for fmt in target_formats:
-                        img_byte_arr = io.BytesIO()
-                        if fmt == "JPG":
-                            img_jpg = img.convert("RGB")
-                            img_jpg.save(img_byte_arr, format='JPEG', quality=quality, optimize=True)
-                            ext = "jpg"
-                        elif fmt == "PNG":
-                            img.save(img_byte_arr, format='PNG', optimize=True)
-                            ext = "png"
-                        elif fmt == "WEBP":
-                            img.save(img_byte_arr, format='WEBP', quality=quality)
-                            ext = "webp"
+                    # 7. Simpan Hasil Sesuai Format Pilihan
+                    if mode_output == "Gabung Jadi 1 File PDF":
+                        processed_images_for_pdf.append(img.convert("RGB"))
+                    else:
+                        for fmt in target_formats:
+                            img_byte_arr = io.BytesIO()
+                            
+                            if fmt == "JPG":
+                                img.convert("RGB").save(img_byte_arr, format='JPEG', quality=quality, optimize=True)
+                                ext = "jpg"
+                            elif fmt == "PNG":
+                                img.save(img_byte_arr, format='PNG', optimize=True)
+                                ext = "png"
+                            elif fmt == "WEBP":
+                                img.save(img_byte_arr, format='WEBP', quality=quality)
+                                ext = "webp"
+                            elif fmt == "TIFF":
+                                img.convert("RGB").save(img_byte_arr, format='TIFF')
+                                ext = "tiff"
+                            elif fmt == "BMP":
+                                img.convert("RGB").save(img_byte_arr, format='BMP')
+                                ext = "bmp"
+                            elif fmt == "GIF":
+                                img.convert("P", palette=Image.ADAPTIVE).save(img_byte_arr, format='GIF')
+                                ext = "gif"
+                            elif fmt == "ICO":
+                                ico_img = img.resize((256, 256), Image.Resampling.LANCZOS)
+                                ico_img.save(img_byte_arr, format='ICO')
+                                ext = "ico"
 
-                        zip_file.writestr(f"{nama_baru}.{ext}", img_byte_arr.getvalue())
+                            zip_file.writestr(f"{nama_baru}.{ext}", img_byte_arr.getvalue())
 
-                progress_bar.progress((idx + 1) / len(uploaded_files))
+                    progress_bar.progress((idx + 1) / len(uploaded_files))
 
-        st.success("✅ Seluruh foto berhasil diproses!")
+            st.success("✅ Seluruh foto berhasil diproses!")
 
-        # Tombol Unduh
-        if mode_output == "Gabung Jadi 1 File PDF":
-            pdf_buffer = io.BytesIO()
-            if processed_images_for_pdf:
-                processed_images_for_pdf[0].save(
-                    pdf_buffer, format="PDF", save_all=True, append_images=processed_images_for_pdf[1:]
-                )
+            # Tombol Unduh
+            if mode_output == "Gabung Jadi 1 File PDF":
+                pdf_buffer = io.BytesIO()
+                if processed_images_for_pdf:
+                    processed_images_for_pdf[0].save(
+                        pdf_buffer, format="PDF", save_all=True, append_images=processed_images_for_pdf[1:]
+                    )
+                    st.download_button(
+                        label="📄 Unduh Dokumen PDF",
+                        data=pdf_buffer.getvalue(),
+                        file_name=f"{prefix_nama}_dokumen.pdf",
+                        mime="application/pdf"
+                    )
+            else:
                 st.download_button(
-                    label="📄 Unduh Dokumen PDF",
-                    data=pdf_buffer.getvalue(),
-                    file_name=f"{prefix_nama}_dokumen.pdf",
-                    mime="application/pdf"
+                    label="📦 Unduh Semua Foto (File ZIP)",
+                    data=zip_buffer.getvalue(),
+                    file_name=f"{prefix_nama}_hasil.zip",
+                    mime="application/zip"
                 )
-        else:
-            st.download_button(
-                label="📦 Unduh Semua Foto (File ZIP)",
-                data=zip_buffer.getvalue(),
-                file_name=f"{prefix_nama}_hasil.zip",
-                mime="application/zip"
-            )
