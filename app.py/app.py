@@ -3,17 +3,24 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 import io
 import zipfile
 import os
+import pandas as pd
+
+# Cek dukungan AI Background Removal (rembg)
+try:
+    from rembg import remove as remove_bg
+    REMBG_AVAILABLE = True
+except ImportError:
+    REMBG_AVAILABLE = False
 
 # Konfigurasi Halaman Web
-st.set_page_config(page_title="Studio Pengolah Foto Massal", page_icon="🎨", layout="wide")
+st.set_page_config(page_title="Super Photo Studio Pro", page_icon="⚡", layout="wide")
 
-st.title("🎨 Studio Pengolah & Konverter Foto Massal")
-st.write("Aplikasi serbaguna untuk edit foto massal, penyesuaian warna, watermark logo/teks, bulk rename, hingga konversi ke berbagai format & PDF.")
+st.title("⚡ Super Photo Studio Pro (All-in-One)")
+st.write("Platform otomatisasi foto serbaguna: Kompresi CPNS/Admin, Canva Fit-to-Box Toko Online, Frame Promo, Watermark Dinamis, hingga Hapus Background AI.")
 
 # ==================== SIDEBAR PENGATURAN ====================
 st.sidebar.header("⚙️ 1. Format & Penamaan File")
 
-# Moda Output: Gambar (ZIP) atau PDF
 mode_output = st.sidebar.radio("Moda Hasil Akhir:", ["File Gambar Terpisah (ZIP)", "Gabung Jadi 1 File PDF"])
 
 if mode_output == "File Gambar Terpisah (ZIP)":
@@ -31,45 +38,93 @@ prefix_nama = st.sidebar.text_input("Awalan Nama File:", "foto_produk")
 pakai_penomoran = st.sidebar.checkbox("Tambahkan Penomoran Urut (_01, _02, dst)", value=True)
 
 st.sidebar.markdown("---")
-st.sidebar.header("📐 2. Dimensi & Potong (Crop)")
+st.sidebar.header("📐 2. Dimensi & Fit-to-Box")
 
-crop_ratio = st.sidebar.selectbox(
-    "Potong Rasio Media Sosial:",
-    ["Asli (Tanpa Crop)", "1:1 (Feed Instagram)", "9:16 (Story / TikTok)", "16:9 (Banner / Landscape)"]
+mode_resize = st.sidebar.selectbox(
+    "Mode Ukuran & Kanvas:",
+    [
+        "Asli (Tanpa Ubah Ukuran)",
+        "Lebar Maksimal (Responsive)",
+        "Fit-to-Box Square 1:1 (Kanvas Toko Online)",
+        "Crop Aspect Ratio (1:1 / 9:16 / 16:9)"
+    ]
 )
-max_width = st.sidebar.number_input("Lebar Maksimal Gambar (px):", min_value=16, max_value=3840, value=1920, step=100)
-quality = st.sidebar.slider("Kualitas Kompresi (JPG/WEBP):", min_value=10, max_value=100, value=80)
+
+max_width = 1920
+bg_canvas_color = "#FFFFFF"
+
+if mode_resize == "Lebar Maksimal (Responsive)":
+    max_width = st.sidebar.number_input("Lebar Maksimal (px):", min_value=100, max_value=3840, value=1920, step=100)
+elif mode_resize == "Fit-to-Box Square 1:1 (Kanvas Toko Online)":
+    max_width = st.sidebar.number_input("Ukuran Kanvas Persegi (px):", min_value=300, max_value=2400, value=1080, step=100)
+    bg_canvas_color = st.sidebar.color_picker("Warna Latar Belakang Kanvas:", "#FFFFFF")
+elif mode_resize == "Crop Aspect Ratio (1:1 / 9:16 / 16:9)":
+    crop_ratio = st.sidebar.selectbox("Pilih Rasio Crop:", ["1:1 (Square)", "9:16 (Story/TikTok)", "16:9 (Banner)"])
+    max_width = st.sidebar.number_input("Lebar Maksimal (px):", min_value=300, max_value=3840, value=1920, step=100)
 
 st.sidebar.markdown("---")
-st.sidebar.header("🎨 3. Filter & Efek Warna")
-brightness = st.sidebar.slider("Kecerahan (Brightness):", 0.5, 1.5, 1.0, 0.05)
-contrast = st.sidebar.slider("Kontras (Contrast):", 0.5, 1.5, 1.0, 0.05)
-saturation = st.sidebar.slider("Saturasi Warna:", 0.0, 2.0, 1.0, 0.1)
-is_grayscale = st.sidebar.checkbox("Ubah ke Hitam-Putih (Grayscale)")
-apply_blur = st.sidebar.checkbox("Efek Blur Soft")
+st.sidebar.header("🎯 3. Kompresi & Batas Ukuran File (CPNS/Admin)")
+enable_target_size = st.sidebar.checkbox("Aktifkan Batas Ukuran File Maksimal (Misal: < 200 KB)")
+target_size_kb = 200
+if enable_target_size:
+    target_size_kb = st.sidebar.number_input("Ukuran File Maksimal (KB):", min_value=20, max_value=5000, value=200, step=10)
+quality = st.sidebar.slider("Kualitas Kompresi Dasar (JPG/WEBP):", 10, 100, 80)
 
 st.sidebar.markdown("---")
-st.sidebar.header("💧 4. Watermark")
-tipe_watermark = st.sidebar.radio("Jenis Watermark:", ["Tanpa Watermark", "Teks", "Logo Gambar (PNG)"])
+st.sidebar.header("🤖 4. Hapus Background (AI Rembg)")
+do_remove_bg = False
+if REMBG_AVAILABLE:
+    do_remove_bg = st.sidebar.checkbox("Hapus Background Otomatis dengan AI")
+else:
+    st.sidebar.info("💡 Pustaka `rembg` belum terpasang di server untuk fitur Hapus BG AI.")
+
+st.sidebar.markdown("---")
+st.sidebar.header("🖼️ 5. Bingkai Promo (Frame Overlay)")
+frame_file = st.sidebar.file_uploader("Unggah Bingkai Promo (PNG Transparan):", type=['png'])
+
+st.sidebar.markdown("---")
+st.sidebar.header("💧 6. Watermark (Statik & Dinamis CSV)")
+tipe_watermark = st.sidebar.radio("Jenis Watermark:", ["Tanpa Watermark", "Teks Statik", "Logo Gambar (PNG)", "Dinamis dari File CSV/Excel"])
 
 teks_watermark = "CONFIDENTIAL"
 ukuran_font = 36
 logo_file = None
 logo_scale = 20
 opasitas = 120
+df_watermark = None
 
-if tipe_watermark == "Teks":
+if tipe_watermark == "Teks Statik":
     teks_watermark = st.sidebar.text_input("Teks Watermark:", "CONFIDENTIAL")
     ukuran_font = st.sidebar.slider("Ukuran Font:", 12, 100, 36)
     opasitas = st.sidebar.slider("Transparansi Watermark:", 0, 255, 120)
 elif tipe_watermark == "Logo Gambar (PNG)":
-    logo_file = st.sidebar.file_uploader("Unggah Logo PNG (Background Transparan):", type=['png'])
-    logo_scale = st.sidebar.slider("Ukuran Logo (% dari lebar foto):", 5, 50, 20)
+    logo_file = st.sidebar.file_uploader("Unggah Logo PNG:", type=['png'])
+    logo_scale = st.sidebar.slider("Ukuran Logo (% dari foto):", 5, 50, 20)
     opasitas = st.sidebar.slider("Transparansi Logo:", 0, 255, 200)
+elif tipe_watermark == "Dinamis dari File CSV/Excel":
+    csv_file = st.sidebar.file_uploader("Unggah File CSV/Excel (Kolom: 'filename' & 'text'):", type=['csv', 'xlsx'])
+    if csv_file:
+        try:
+            if csv_file.name.endswith('.csv'):
+                df_watermark = pd.read_csv(csv_file)
+            else:
+                df_watermark = pd.read_excel(csv_file)
+            st.sidebar.success("✅ File CSV/Excel berhasil dibaca!")
+        except Exception as e:
+            st.sidebar.error("Gagal membaca file CSV/Excel.")
+    ukuran_font = st.sidebar.slider("Ukuran Font Dinamis:", 12, 100, 36)
+    opasitas = st.sidebar.slider("Transparansi Teks Dinamis:", 0, 255, 150)
 
 st.sidebar.markdown("---")
-st.sidebar.header("🔒 5. Privasi")
-strip_exif = st.sidebar.checkbox("Hapus Metadata EXIF (GPS & Info Kamera)", value=True)
+st.sidebar.header("🎨 7. Filter Warna")
+brightness = st.sidebar.slider("Kecerahan:", 0.5, 1.5, 1.0, 0.05)
+contrast = st.sidebar.slider("Kontras:", 0.5, 1.5, 1.0, 0.05)
+saturation = st.sidebar.slider("Saturasi:", 0.0, 2.0, 1.0, 0.1)
+is_grayscale = st.sidebar.checkbox("Ubah ke Hitam-Putih")
+
+st.sidebar.markdown("---")
+st.sidebar.header("🔒 8. Privasi")
+strip_exif = st.sidebar.checkbox("Hapus Metadata EXIF (GPS)", value=True)
 
 
 # ==================== FUNGSI PEMROSESAN ====================
@@ -87,17 +142,30 @@ def dapatkan_font(ukuran):
             continue
     return ImageFont.load_default()
 
-def crop_gambar(img, ratio_str):
-    if ratio_str.startswith("Asli"):
-        return img
+def hex_to_rgb(hex_str):
+    hex_str = hex_str.lstrip('#')
+    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
+
+def apply_fit_to_box(img, target_size, bg_hex):
+    img_w, img_h = img.size
+    ratio = min(target_size / img_w, target_size / img_h)
+    new_w, new_h = int(img_w * ratio), int(img_h * ratio)
+    resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    
+    bg_color = hex_to_rgb(bg_hex) + (255,)
+    canvas = Image.new("RGBA", (target_size, target_size), bg_color)
+    paste_x = (target_size - new_w) // 2
+    paste_y = (target_size - new_h) // 2
+    canvas.paste(resized, (paste_x, paste_y), resized)
+    return canvas
+
+def crop_gambar_ratio(img, ratio_str):
     ratios = {"1:1": (1, 1), "9:16": (9, 16), "16:9": (16, 9)}
+    target_w, target_h = (1, 1)
     for k in ratios:
         if k in ratio_str:
             target_w, target_h = ratios[k]
             break
-    else:
-        return img
-
     w, h = img.size
     current_ratio = w / h
     target_ratio = target_w / target_h
@@ -120,25 +188,31 @@ def sesuaikan_warna(img):
         img = ImageEnhance.Contrast(img).enhance(contrast)
     if saturation != 1.0 and not is_grayscale:
         img = ImageEnhance.Color(img).enhance(saturation)
-    if apply_blur:
-        img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
     return img
 
-def tempel_watermark(img):
+def tempel_watermark(img, nama_file_asli):
     if tipe_watermark == "Tanpa Watermark":
         return img
 
     w, h = img.size
     watermark_layer = Image.new("RGBA", (w, h), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(watermark_layer)
 
-    if tipe_watermark == "Teks":
-        draw = ImageDraw.Draw(watermark_layer)
+    teks_dipakai = ""
+    if tipe_watermark == "Teks Statik":
+        teks_dipakai = teks_watermark
+    elif tipe_watermark == "Dinamis dari File CSV/Excel" and df_watermark is not None:
+        row = df_watermark[df_watermark['filename'].astype(str).str.contains(nama_file_asli, case=False, na=False)]
+        if not row.empty:
+            teks_dipakai = str(row.iloc[0]['text'])
+
+    if teks_dipakai:
         font = dapatkan_font(ukuran_font)
-        bbox = draw.textbbox((0, 0), teks_watermark, font=font)
+        bbox = draw.textbbox((0, 0), teks_dipakai, font=font)
         text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
         pos_x = max(10, w - text_w - 20)
         pos_y = max(10, h - text_h - 20)
-        draw.text((pos_x, pos_y), teks_watermark, font=font, fill=(255, 255, 255, opasitas))
+        draw.text((pos_x, pos_y), teks_dipakai, font=font, fill=(255, 255, 255, opasitas))
 
     elif tipe_watermark == "Logo Gambar (PNG)" and logo_file is not None:
         logo = Image.open(logo_file).convert("RGBA")
@@ -156,6 +230,26 @@ def tempel_watermark(img):
         watermark_layer.paste(logo, (pos_x, pos_y), logo)
 
     return Image.alpha_composite(img, watermark_layer)
+
+def kompres_ke_target_kb(img_rgb, fmt, max_kb, base_q):
+    target_bytes = max_kb * 1024
+    curr_q = base_q
+    
+    while curr_q >= 10:
+        buf = io.BytesIO()
+        if fmt == "JPG":
+            img_rgb.save(buf, format='JPEG', quality=curr_q, optimize=True)
+        elif fmt == "WEBP":
+            img_rgb.save(buf, format='WEBP', quality=curr_q)
+        else:
+            img_rgb.save(buf, format=fmt)
+            return buf.getvalue()
+
+        if buf.tell() <= target_bytes or curr_q <= 15:
+            return buf.getvalue()
+        curr_q -= 5
+        
+    return buf.getvalue()
 
 
 # ==================== ANTARMUKA UTAMA ====================
@@ -178,69 +272,77 @@ if uploaded_files:
 
             with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
                 for idx, uploaded_file in enumerate(uploaded_files):
-                    # 1. Buka & Penyesuaian Dasar
                     img = Image.open(uploaded_file).convert("RGBA")
                     
-                    # 2. Crop Aspect Ratio
-                    img = crop_gambar(img, crop_ratio)
+                    # 1. Hapus Background AI (opsional)
+                    if do_remove_bg and REMBG_AVAILABLE:
+                        img = remove_bg(img)
 
-                    # 3. Resize Lebar Maksimal
-                    orig_w, orig_h = img.size
-                    ratio = min(max_width / orig_w, max_width / orig_h)
-                    if ratio < 1.0:
-                        new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
-                        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    # 2. Mode Ukuran & Kanvas
+                    if mode_resize == "Fit-to-Box Square 1:1 (Kanvas Toko Online)":
+                        img = apply_fit_to_box(img, max_width, bg_canvas_color)
+                    elif mode_resize == "Crop Aspect Ratio (1:1 / 9:16 / 16:9)":
+                        img = crop_gambar_ratio(img, crop_ratio)
+                        orig_w, orig_h = img.size
+                        ratio = min(max_width / orig_w, max_width / orig_h)
+                        if ratio < 1.0:
+                            img = img.resize((int(orig_w * ratio), int(orig_h * ratio)), Image.Resampling.LANCZOS)
+                    elif mode_resize == "Lebar Maksimal (Responsive)":
+                        orig_w, orig_h = img.size
+                        ratio = min(max_width / orig_w, max_width / orig_h)
+                        if ratio < 1.0:
+                            img = img.resize((int(orig_w * ratio), int(orig_h * ratio)), Image.Resampling.LANCZOS)
 
-                    # 4. Filter Warna & Efek
+                    # 3. Penyesuaian Warna
                     img = sesuaikan_warna(img)
 
-                    # 5. Watermark
-                    img = tempel_watermark(img)
+                    # 4. Bingkai Promo Overlay
+                    if frame_file is not None:
+                        frame_img = Image.open(frame_file).convert("RGBA")
+                        frame_resized = frame_img.resize(img.size, Image.Resampling.LANCZOS)
+                        img = Image.alpha_composite(img, frame_resized)
 
-                    # 6. Menentukan Nama File Baru (Bulk Rename)
+                    # 5. Watermark (Statik / Dinamis)
+                    img = tempel_watermark(img, uploaded_file.name)
+
+                    # 6. Bulk Rename
                     base_nama = prefix_nama if prefix_nama.strip() else "foto"
-                    if pakai_penomoran:
-                        nama_baru = f"{base_nama}_{idx+1:02d}"
-                    else:
-                        nama_baru = f"{base_nama}_{os.path.splitext(uploaded_file.name)[0]}"
+                    nama_baru = f"{base_nama}_{idx+1:02d}" if pakai_penomoran else f"{base_nama}_{os.path.splitext(uploaded_file.name)[0]}"
 
-                    # 7. Simpan Hasil Sesuai Format Pilihan
+                    # 7. Ekspor File
                     if mode_output == "Gabung Jadi 1 File PDF":
                         processed_images_for_pdf.append(img.convert("RGB"))
                     else:
                         for fmt in target_formats:
-                            img_byte_arr = io.BytesIO()
+                            img_rgb = img.convert("RGB") if fmt in ["JPG", "TIFF", "BMP"] else img
                             
-                            if fmt == "JPG":
-                                img.convert("RGB").save(img_byte_arr, format='JPEG', quality=quality, optimize=True)
-                                ext = "jpg"
-                            elif fmt == "PNG":
-                                img.save(img_byte_arr, format='PNG', optimize=True)
-                                ext = "png"
-                            elif fmt == "WEBP":
-                                img.save(img_byte_arr, format='WEBP', quality=quality)
-                                ext = "webp"
-                            elif fmt == "TIFF":
-                                img.convert("RGB").save(img_byte_arr, format='TIFF')
-                                ext = "tiff"
-                            elif fmt == "BMP":
-                                img.convert("RGB").save(img_byte_arr, format='BMP')
-                                ext = "bmp"
-                            elif fmt == "GIF":
-                                img.convert("P", palette=Image.ADAPTIVE).save(img_byte_arr, format='GIF')
-                                ext = "gif"
-                            elif fmt == "ICO":
-                                ico_img = img.resize((256, 256), Image.Resampling.LANCZOS)
-                                ico_img.save(img_byte_arr, format='ICO')
-                                ext = "ico"
+                            if enable_target_size and fmt in ["JPG", "WEBP"]:
+                                file_data = kompres_ke_target_kb(img_rgb, fmt, target_size_kb, quality)
+                            else:
+                                buf = io.BytesIO()
+                                if fmt == "JPG":
+                                    img_rgb.save(buf, format='JPEG', quality=quality, optimize=True)
+                                elif fmt == "PNG":
+                                    img.save(buf, format='PNG', optimize=True)
+                                elif fmt == "WEBP":
+                                    img.save(buf, format='WEBP', quality=quality)
+                                elif fmt == "TIFF":
+                                    img_rgb.save(buf, format='TIFF')
+                                elif fmt == "BMP":
+                                    img_rgb.save(buf, format='BMP')
+                                elif fmt == "GIF":
+                                    img.convert("P", palette=Image.ADAPTIVE).save(buf, format='GIF')
+                                elif fmt == "ICO":
+                                    img.resize((256, 256), Image.Resampling.LANCZOS).save(buf, format='ICO')
+                                file_data = buf.getvalue()
 
-                            zip_file.writestr(f"{nama_baru}.{ext}", img_byte_arr.getvalue())
+                            ext = fmt.lower()
+                            zip_file.writestr(f"{nama_baru}.{ext}", file_data)
 
                     progress_bar.progress((idx + 1) / len(uploaded_files))
 
             st.success("✅ Seluruh foto berhasil diproses!")
 
-            # Tombol Unduh
             if mode_output == "Gabung Jadi 1 File PDF":
                 pdf_buffer = io.BytesIO()
                 if processed_images_for_pdf:
