@@ -407,24 +407,21 @@ with tab_tracker:
                                 g_name = GPSTAGS.get(g_tag, g_tag)
                                 gps_info[g_name] = val[g_tag]
                         elif tag_name in ['Make', 'Model', 'DateTimeOriginal', 'Software', 'Orientation']:
-                            # Tangani teks/byte kosong agar tidak mencetak string kosong
                             val_str = str(val).strip()
                             info_perangkat[tag_name] = val_str if val_str else "Tidak ada"
 
                     st.subheader("📱 Informasi Perangkat & Waktu")
-                    # Tampilkan field kunci secara konsisten
                     st.write(f"**Make:** `{info_perangkat.get('Make', 'Tidak ada')}`")
                     st.write(f"**Model:** `{info_perangkat.get('Model', 'Tidak ada')}`")
                     st.write(f"**DateTimeOriginal:** `{info_perangkat.get('DateTimeOriginal', 'Tidak ada')}`")
                     st.write(f"**Software:** `{info_perangkat.get('Software', 'Tidak ada')}`")
 
-                    # Ekstraksi GPS secara aman
+                    # Ekstraksi GPS aman
                     lat, lon = None, None
                     if gps_info and 'GPSLatitude' in gps_info and 'GPSLongitude' in gps_info:
                         lat = dms_ke_deg(gps_info['GPSLatitude'], gps_info.get('GPSLatitudeRef', 'N'))
                         lon = dms_ke_deg(gps_info['GPSLongitude'], gps_info.get('GPSLongitudeRef', 'E'))
 
-                    # Validasi Ketat: Hanya tampilkan Peta & Link jika koordinat valid (bukan None & bukan NaN)
                     if lat is not None and lon is not None and not math.isnan(lat) and not math.isnan(lon):
                         link_gmaps = buat_link_gmaps(lat, lon)
 
