@@ -378,7 +378,7 @@ with tab_tracker:
     sub_tab1, sub_tab2 = st.tabs(["📸 Extract Auto dari Foto", "🌐 Input Koordinat Manual"])
 
     # ------------------ SUB TAB 1: ESTRAKSI DARI FOTO ------------------
-    with sub_tab1:
+with sub_tab1:
     st.write("Unggah foto asli untuk mengekstrak informasi kamera dan mengubah lokasi GPS foto menjadi Link Google Maps.")
     file_lacak = st.file_uploader("Unggah foto tunggal:", type=['jpg', 'jpeg', 'tiff'], key="uploader_lacak")
 
