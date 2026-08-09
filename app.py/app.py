@@ -5,7 +5,25 @@ import io
 import zipfile
 import os
 import pandas as pd
+import math  # <--- Tambahkan ini di bawah import pandas
 
+# --- Fungsi Helper GPS & Google Maps ---
+def dms_ke_deg(dms, ref):
+    try:
+        deg = float(dms[0])
+        m = float(dms[1])
+        s = float(dms[2])
+        dec = deg + (m / 60.0) + (s / 3600.0)
+        if ref in ['S', 'W']:
+            dec = -dec
+        return dec
+    except Exception:
+        return None
+
+def buat_link_gmaps(lat, lon):
+    if lat is None or lon is None or math.isnan(lat) or math.isnan(lon):
+        return ""
+    return f"https://www.google.com/maps?q={lat},{lon}"
 # Cek dukungan AI Background Removal (rembg)
 try:
     from rembg import remove as remove_bg
@@ -361,59 +379,69 @@ with tab_tracker:
 
     # ------------------ SUB TAB 1: ESTRAKSI DARI FOTO ------------------
     with sub_tab1:
-        st.write("Unggah foto asli untuk mengekstrak informasi kamera dan mengubah lokasi GPS foto menjadi Link Google Maps.")
-        file_lacak = st.file_uploader("Unggah foto tunggal:", type=['jpg', 'jpeg', 'tiff'], key="uploader_lacak")
+    st.write("Unggah foto asli untuk mengekstrak informasi kamera dan mengubah lokasi GPS foto menjadi Link Google Maps.")
+    file_lacak = st.file_uploader("Unggah foto tunggal:", type=['jpg', 'jpeg', 'tiff'], key="uploader_lacak")
 
-        if file_lacak:
-            try:
-                img_lacak = Image.open(file_lacak)
-                exif_data = img_lacak._getexif()
+    if file_lacak:
+        try:
+            img_lacak = Image.open(file_lacak)
+            exif_data = img_lacak._getexif()
 
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    st.image(img_lacak, caption="Foto yang Diunggah", use_container_width=True)
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.image(img_lacak, caption="Foto yang Diunggah", use_container_width=True)
 
-                with col2:
-                    if not exif_data:
-                        st.warning("⚠️ Foto ini TIDAK memiliki metadata EXIF (kemungkinan dikirim via WhatsApp biasa atau metadatanya sudah dihapus).")
+            with col2:
+                if not exif_data:
+                    st.warning("⚠️ Foto ini TIDAK memiliki metadata EXIF (kemungkinan dikirim via WhatsApp biasa atau metadatanya sudah dihapus).")
+                else:
+                    st.success("✅ Metadata EXIF terdeteksi!")
+
+                    gps_info = {}
+                    info_perangkat = {}
+
+                    for tag_id, val in exif_data.items():
+                        tag_name = TAGS.get(tag_id, tag_id)
+                        if tag_name == "GPSInfo":
+                            for g_tag in val:
+                                g_name = GPSTAGS.get(g_tag, g_tag)
+                                gps_info[g_name] = val[g_tag]
+                        elif tag_name in ['Make', 'Model', 'DateTimeOriginal', 'Software', 'Orientation']:
+                            # Tangani teks/byte kosong agar tidak mencetak string kosong
+                            val_str = str(val).strip()
+                            info_perangkat[tag_name] = val_str if val_str else "Tidak ada"
+
+                    st.subheader("📱 Informasi Perangkat & Waktu")
+                    # Tampilkan field kunci secara konsisten
+                    st.write(f"**Make:** `{info_perangkat.get('Make', 'Tidak ada')}`")
+                    st.write(f"**Model:** `{info_perangkat.get('Model', 'Tidak ada')}`")
+                    st.write(f"**DateTimeOriginal:** `{info_perangkat.get('DateTimeOriginal', 'Tidak ada')}`")
+                    st.write(f"**Software:** `{info_perangkat.get('Software', 'Tidak ada')}`")
+
+                    # Ekstraksi GPS secara aman
+                    lat, lon = None, None
+                    if gps_info and 'GPSLatitude' in gps_info and 'GPSLongitude' in gps_info:
+                        lat = dms_ke_deg(gps_info['GPSLatitude'], gps_info.get('GPSLatitudeRef', 'N'))
+                        lon = dms_ke_deg(gps_info['GPSLongitude'], gps_info.get('GPSLongitudeRef', 'E'))
+
+                    # Validasi Ketat: Hanya tampilkan Peta & Link jika koordinat valid (bukan None & bukan NaN)
+                    if lat is not None and lon is not None and not math.isnan(lat) and not math.isnan(lon):
+                        link_gmaps = buat_link_gmaps(lat, lon)
+
+                        st.subheader("📍 Lokasi GPS & Link Google Maps")
+                        st.write(f"**Latitude:** `{lat:.6f}`")
+                        st.write(f"**Longitude:** `{lon:.6f}`")
+                        
+                        st.text_input("Tautan Langsung Google Maps:", value=link_gmaps, key="link_exif_out")
+                        st.markdown(f"👉 [Klik di sini untuk buka lokasi di Google Maps]({link_gmaps})")
+
+                        # Peta Interaktif Streamlit
+                        df_map = pd.DataFrame({'lat': [lat], 'lon': [lon]})
+                        st.map(df_map)
                     else:
-                        st.success("✅ Metadata EXIF terdeteksi!")
-
-                        gps_info = {}
-                        info_perangkat = {}
-
-                        for tag_id, val in exif_data.items():
-                            tag_name = TAGS.get(tag_id, tag_id)
-                            if tag_name == "GPSInfo":
-                                for g_tag in val:
-                                    g_name = GPSTAGS.get(g_tag, g_tag)
-                                    gps_info[g_name] = val[g_tag]
-                            elif tag_name in ['Make', 'Model', 'DateTimeOriginal', 'Software', 'Orientation']:
-                                info_perangkat[tag_name] = str(val)
-
-                        st.subheader("📱 Informasi Perangkat & Waktu")
-                        for k, v in info_perangkat.items():
-                            st.write(f"**{k}:** `{v}`")
-
-                        if gps_info and 'GPSLatitude' in gps_info and 'GPSLongitude' in gps_info:
-                            lat = dms_ke_deg(gps_info['GPSLatitude'], gps_info.get('GPSLatitudeRef', 'N'))
-                            lon = dms_ke_deg(gps_info['GPSLongitude'], gps_info.get('GPSLongitudeRef', 'E'))
-                            link_gmaps = buat_link_gmaps(lat, lon)
-
-                            st.subheader("📍 Lokasi GPS & Link Google Maps")
-                            st.write(f"**Latitude:** `{lat}`")
-                            st.write(f"**Longitude:** `{lon}`")
-                            
-                            st.text_input("Tautan Langsung Google Maps:", value=link_gmaps, key="link_exif_out")
-                            st.markdown(f"👉 [Klik di sini untuk buka lokasi di Google Maps]({link_gmaps})")
-
-                            # Peta Interaktif Streamlit
-                            df_map = pd.DataFrame({'lat': [lat], 'lon': [lon]})
-                            st.map(df_map)
-                        else:
-                            st.info("ℹ️ Informasi perangkat ditemukan, namun koordinat lokasi GPS tidak terlampir pada foto ini.")
-            except Exception as e:
-                st.error(f"Gagal membaca metadata foto: {e}")
+                        st.info("ℹ️ Informasi perangkat ditemukan, namun koordinat lokasi GPS tidak terlampir atau tidak valid pada foto ini.")
+        except Exception as e:
+            st.error(f"Gagal membaca metadata foto: {e}")
 
     # ------------------ SUB TAB 2: KONVERTER MANUALL ------------------
     with sub_tab2:
