@@ -391,7 +391,7 @@ with tab_tracker:
                             elif tag_name in ['Make', 'Model', 'DateTimeOriginal', 'Software', 'Orientation']:
                                 info_perangkat[tag_name] = str(val)
 
-                        st.subheader("📱 Informas Perangkat & Waktu")
+                        st.subheader("📱 Informasi Perangkat & Waktu")
                         for k, v in info_perangkat.items():
                             st.write(f"**{k}:** `{v}`")
 
