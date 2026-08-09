@@ -27,7 +27,7 @@ Aplikasi ini terbagi menjadi 2 modul utama dalam bentuk Tab Navigasi:
 * **Ekstraksi Metadata Perangkat:** Membaca merek HP/kamera, tipe perangkat, versi perangkat lunak, dan tanggal foto diambil.
 * **Pelacak Lokasi Koordinat GPS:** Menampilkan titik koordinat *Latitude* dan *Longitude* pembuatan foto.
 * **Peta Interaktif:** Mengintegrasikan titik lokasi ke dalam peta langsung di website serta menyediakan tautan cepat ke **Google Maps**.
-* **Trik: Kirim foto via WhatsApp sebagai Dokumen (Document) agar metadata EXIF tetap utuh dan dapat dilacak.
+* Trik: Kirim foto via WhatsApp sebagai Dokumen (Document) agar metadata EXIF tetap utuh dan dapat dilacak.
 
 ---
 
