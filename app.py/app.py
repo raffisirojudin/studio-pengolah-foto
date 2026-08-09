@@ -1,5 +1,5 @@
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from PIL.ExifTags import TAGS, GPSTAGS
 import io
 import zipfile
@@ -19,7 +19,7 @@ st.set_page_config(page_title="Super Photo Studio & Tracker", page_icon="⚡", l
 st.title("⚡ Super Photo Studio & Digital Tracker")
 
 # Membuat 2 Tab utama
-tab_studio, tab_tracker = st.tabs(["🎨 Pengolah Foto Massal", "🔍 Pelacak Metadata EXIF & GPS"])
+tab_studio, tab_tracker = st.tabs(["🎨 Pengolah Foto Massal", "🔍 Pelacak Metadata EXIF & Maps Converter"])
 
 # ==============================================================================
 # TAB 1: STUDIO PENGOLAH FOTO MASSAL
@@ -131,7 +131,7 @@ with tab_studio:
     saturation = st.sidebar.slider("Saturasi:", 0.0, 2.0, 1.0, 0.1)
     is_grayscale = st.sidebar.checkbox("Ubah ke Hitam-Putih")
 
-    # ------------------ FUNGSI PEMROSESAN STUDIO ------------------
+    # Helper Functions
     def dapatkan_font(ukuran):
         font_paths = ["arial.ttf", "C:\\Windows\\Fonts\\arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
         for path in font_paths:
@@ -150,7 +150,6 @@ with tab_studio:
         ratio = min(target_size / img_w, target_size / img_h)
         new_w, new_h = int(img_w * ratio), int(img_h * ratio)
         resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        
         bg_color = hex_to_rgb(bg_hex) + (255,)
         canvas = Image.new("RGBA", (target_size, target_size), bg_color)
         canvas.paste(resized, ((target_size - new_w) // 2, (target_size - new_h) // 2), resized)
@@ -226,7 +225,6 @@ with tab_studio:
     def kompres_ke_target_kb(img_rgb, fmt, max_kb, base_q):
         target_bytes = max_kb * 1024
         curr_q = base_q
-        
         while curr_q >= 10:
             buf = io.BytesIO()
             if fmt == "JPG":
@@ -240,10 +238,8 @@ with tab_studio:
             if buf.tell() <= target_bytes or curr_q <= 15:
                 return buf.getvalue()
             curr_q -= 5
-            
         return buf.getvalue()
 
-    # ------------------ PEMROSESAN MASALAH ------------------
     uploaded_files = st.file_uploader(
         "Unggah foto-foto Anda di sini:", 
         type=['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff'], 
@@ -349,62 +345,125 @@ with tab_studio:
 
 
 # ==============================================================================
-# TAB 2: PELACAK METADATA EXIF & GPS FOTO
+# TAB 2: PELACAK METADATA EXIF & KONVERTER GOOGLE MAPS
 # ==============================================================================
 with tab_tracker:
-    st.markdown("### 🔍 Pelacak Metadata EXIF & Peta Lokasi GPS")
-    st.write("Unggah foto asli langsung dari HP/kamera untuk melacak lokasi pembuatan foto, merek perangkat, dan tanggal pengambilannya.")
+    st.markdown("### 🔍 Pelacak EXIF Foto & Generator Link Google Maps")
 
-    file_lacak = st.file_uploader("Unggah foto tunggal untuk diperiksa metadatanya:", type=['jpg', 'jpeg', 'tiff'])
+    def buat_link_gmaps(latitude, longitude):
+        return f"https://www.google.com/maps?q={latitude},{longitude}"
 
-    if file_lacak:
-        try:
-            img_lacak = Image.open(file_lacak)
-            exif_data = img_lacak._getexif()
+    def dms_ke_deg(dms, ref):
+        deg = float(dms[0]) + float(dms[1]) / 60.0 + float(dms[2]) / 3600.0
+        return -deg if ref in ['S', 'W'] else deg
 
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                st.image(img_lacak, caption="Foto yang Diunggah", use_container_width=True)
+    sub_tab1, sub_tab2 = st.tabs(["📸 Extract Auto dari Foto", "🌐 Input Koordinat Manual"])
 
-            with col2:
-                if not exif_data:
-                    st.warning("⚠️ Foto ini TIDAK memiliki data metadata EXIF (Kemungkinan foto hasil unduhan dari WhatsApp/Medsos atau metadatanya telah dihapus).")
-                else:
-                    st.success("✅ Metadata EXIF terdeteksi!")
+    # ------------------ SUB TAB 1: ESTRAKSI DARI FOTO ------------------
+    with sub_tab1:
+        st.write("Unggah foto asli untuk mengekstrak informasi kamera dan mengubah lokasi GPS foto menjadi Link Google Maps.")
+        file_lacak = st.file_uploader("Unggah foto tunggal:", type=['jpg', 'jpeg', 'tiff'], key="uploader_lacak")
 
-                    gps_info = {}
-                    info_perangkat = {}
+        if file_lacak:
+            try:
+                img_lacak = Image.open(file_lacak)
+                exif_data = img_lacak._getexif()
 
-                    for tag_id, val in exif_data.items():
-                        tag_name = TAGS.get(tag_id, tag_id)
-                        if tag_name == "GPSInfo":
-                            for g_tag in val:
-                                g_name = GPSTAGS.get(g_tag, g_tag)
-                                gps_info[g_name] = val[g_tag]
-                        elif tag_name in ['Make', 'Model', 'DateTimeOriginal', 'Software', 'Orientation']:
-                            info_perangkat[tag_name] = str(val)
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    st.image(img_lacak, caption="Foto yang Diunggah", use_container_width=True)
 
-                    st.subheader("📱 Perangkat & Waktu")
-                    for k, v in info_perangkat.items():
-                        st.write(f"**{k}:** `{v}`")
-
-                    if gps_info and 'GPSLatitude' in gps_info and 'GPSLongitude' in gps_info:
-                        def dms_to_deg(dms, ref):
-                            deg = float(dms[0]) + float(dms[1])/60.0 + float(dms[2])/3600.0
-                            return -deg if ref in ['S', 'W'] else deg
-
-                        lat = dms_to_deg(gps_info['GPSLatitude'], gps_info.get('GPSLatitudeRef', 'N'))
-                        lon = dms_to_deg(gps_info['GPSLongitude'], gps_info.get('GPSLongitudeRef', 'E'))
-
-                        st.subheader("📍 Lokasi GPS Terlacak")
-                        st.write(f"**Latitude:** `{lat}`")
-                        st.write(f"**Longitude:** `{lon}`")
-                        st.markdown(f"👉 [Buka Titik Lokasi di Google Maps](https://www.google.com/maps?q={lat},{lon})")
-
-                        # Tampilkan Peta Interaktif
-                        df_map = pd.DataFrame({'lat': [lat], 'lon': [lon]})
-                        st.map(df_map)
+                with col2:
+                    if not exif_data:
+                        st.warning("⚠️ Foto ini TIDAK memiliki metadata EXIF (kemungkinan dikirim via WhatsApp biasa atau metadatanya sudah dihapus).")
                     else:
-                        st.info("ℹ️ Informasi perangkat ditemukan, namun tidak ada koordinat GPS terlampir pada foto ini.")
-        except Exception as e:
-            st.error(f"Gagal membaca metadata foto: {e}")
+                        st.success("✅ Metadata EXIF terdeteksi!")
+
+                        gps_info = {}
+                        info_perangkat = {}
+
+                        for tag_id, val in exif_data.items():
+                            tag_name = TAGS.get(tag_id, tag_id)
+                            if tag_name == "GPSInfo":
+                                for g_tag in val:
+                                    g_name = GPSTAGS.get(g_tag, g_tag)
+                                    gps_info[g_name] = val[g_tag]
+                            elif tag_name in ['Make', 'Model', 'DateTimeOriginal', 'Software', 'Orientation']:
+                                info_perangkat[tag_name] = str(val)
+
+                        st.subheader("📱 Informas Perangkat & Waktu")
+                        for k, v in info_perangkat.items():
+                            st.write(f"**{k}:** `{v}`")
+
+                        if gps_info and 'GPSLatitude' in gps_info and 'GPSLongitude' in gps_info:
+                            lat = dms_ke_deg(gps_info['GPSLatitude'], gps_info.get('GPSLatitudeRef', 'N'))
+                            lon = dms_ke_deg(gps_info['GPSLongitude'], gps_info.get('GPSLongitudeRef', 'E'))
+                            link_gmaps = buat_link_gmaps(lat, lon)
+
+                            st.subheader("📍 Lokasi GPS & Link Google Maps")
+                            st.write(f"**Latitude:** `{lat}`")
+                            st.write(f"**Longitude:** `{lon}`")
+                            
+                            st.text_input("Tautan Langsung Google Maps:", value=link_gmaps, key="link_exif_out")
+                            st.markdown(f"👉 [Klik di sini untuk buka lokasi di Google Maps]({link_gmaps})")
+
+                            # Peta Interaktif Streamlit
+                            df_map = pd.DataFrame({'lat': [lat], 'lon': [lon]})
+                            st.map(df_map)
+                        else:
+                            st.info("ℹ️ Informasi perangkat ditemukan, namun koordinat lokasi GPS tidak terlampir pada foto ini.")
+            except Exception as e:
+                st.error(f"Gagal membaca metadata foto: {e}")
+
+    # ------------------ SUB TAB 2: KONVERTER MANUALL ------------------
+    with sub_tab2:
+        st.write("Masukkan koordinat manual di bawah ini untuk menghasilkan link Google Maps dan melihat titik lokasinya di peta.")
+
+        jenis_input = st.radio("Pilih Format Koordinat Input:", ["Desimal (contoh: -6.2088, 106.8456)", "DMS / Derajat Menit Detik (contoh: 6°12'31.68\" S)"])
+
+        if jenis_input == "Desimal (contoh: -6.2088, 106.8456)":
+            col_lat, col_lon = st.columns(2)
+            with col_lat:
+                val_lat = st.number_input("Latitude (Lintang):", value=-6.208800, format="%.6f")
+            with col_lon:
+                val_lon = st.number_input("Longitude (Bujur):", value=106.845600, format="%.6f")
+
+            link_manual = buat_link_gmaps(val_lat, val_lon)
+
+            st.success("✅ Link Google Maps Berhasil Dibuat!")
+            st.text_input("URL Google Maps:", value=link_manual, key="manual_dec_link")
+            st.markdown(f"👉 [Buka Titik Lokasi di Google Maps]({link_manual})")
+
+            df_map_manual = pd.DataFrame({'lat': [val_lat], 'lon': [val_lon]})
+            st.map(df_map_manual)
+
+        else:
+            st.subheader("Konversi DMS ke Google Maps")
+            c1, c2 = st.columns(2)
+
+            with c1:
+                st.write("**Latitude (Lintang)**")
+                lat_d = st.number_input("Derajat (°)", min_value=0, max_value=90, value=6, key="dms_lat_d")
+                lat_m = st.number_input("Menit (')", min_value=0, max_value=59, value=12, key="dms_lat_m")
+                lat_s = st.number_input("Detik (\")", min_value=0.0, max_value=59.99, value=31.68, key="dms_lat_s")
+                lat_ref = st.selectbox("Arah Arah Lintang:", ["S (Selatan / South)", "N (Utara / North)"])
+
+            with c2:
+                st.write("**Longitude (Bujur)**")
+                lon_d = st.number_input("Derajat (°)", min_value=0, max_value=180, value=106, key="dms_lon_d")
+                lon_m = st.number_input("Menit (')", min_value=0, max_value=59, value=50, key="dms_lon_m")
+                lon_s = st.number_input("Detik (\")", min_value=0.0, max_value=59.99, value=44.16, key="dms_lon_s")
+                lon_ref = st.selectbox("Arah Bujur:", ["E (Timur / East)", "W (Barat / West)"])
+
+            lat_dec = (lat_d + lat_m/60.0 + lat_s/3600.0) * (-1 if lat_ref.startswith('S') else 1)
+            lon_dec = (lon_d + lon_m/60.0 + lon_s/3600.0) * (-1 if lon_ref.startswith('W') else 1)
+
+            link_dms = buat_link_gmaps(lat_dec, lon_dec)
+
+            st.success("✅ Koordinat DMS Berhasil Dikonversi ke Google Maps!")
+            st.write(f"**Hasil Desimal:** Latitude `{lat_dec:.6f}`, Longitude `{lon_dec:.6f}`")
+            st.text_input("URL Google Maps:", value=link_dms, key="manual_dms_link")
+            st.markdown(f"👉 [Buka Titik Lokasi di Google Maps]({link_dms})")
+
+            df_map_dms = pd.DataFrame({'lat': [lat_dec], 'lon': [lon_dec]})
+            st.map(df_map_dms)
